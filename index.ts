@@ -2,6 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import { PrismaClient } from '@prisma/client'
 import bcryptjs from 'bcryptjs'
+import jwt from 'jsonwebtoken'
+import 'dotenv/config'
 
 const app = express()
 app.use(cors())
@@ -14,6 +16,18 @@ function generateAmountOfMoney() {
     return Math.floor(Math.random() * 200) + 1
 }
 
+function createToken(id: number) {
+    //@ts-ignore
+    return jwt.sign({ id }, process.env.MY_SECRET, { expiresIn: '60s' })
+}
+
+async function getUserFromToken(token: string) {
+    //@ts-ignore
+    const decodedData = jwt.verify(token, process.env.MY_SECRET)
+    //@ts-ignore
+    const user = await prisma.user.findUnique({ where: { id: decodedData.id } })
+    return user;
+}
 
 app.post('/sign-up', async (req, res) => {
     const { email, fullName, password } = req.body
@@ -30,7 +44,8 @@ app.post('/sign-up', async (req, res) => {
                 select: { email: true, fullName: true, amountInAccount: true }
             }
         )
-        res.status(200).send(user)
+        //@ts-ignore
+        res.status(200).send({ user, token: createToken(user.id) })
     }
     catch (err) {
         //@ts-ignore
@@ -46,7 +61,8 @@ app.post('/sign-in', async (req, res) => {
         const passwordMatches = bcryptjs.compareSync(password, user.password)
 
         if (passwordMatches) {
-            res.send(user)
+            //@ts-ignore
+            res.send({ user, token: createToken(user.id) })
         } else {
             throw Error('Password not found')
         }
@@ -56,6 +72,34 @@ app.post('/sign-in', async (req, res) => {
         res.status(400).send({ error: 'User/password invalid' })
     }
 
+})
+
+app.post('/validate', async (req, res) => {
+    const { token } = req.body
+
+    try {
+        const user = await getUserFromToken(token)
+        res.send(user)
+    }
+    catch (err) {
+        //@ts-ignore
+        res.status(400).send({ error: err.message })
+    }
+})
+
+app.post('/banking-info', async (req, res) => {
+    const { token } = req.body
+    try {
+        //@ts-ignore
+        const decoded = jwt.verify(token, process.env.MY_SECRET)
+        //@ts-ignore
+        const user = await prisma.user.findUnique({ where: { id: decoded.id }, include: { transactions: true } })
+        res.send(user)
+    }
+    catch (err) {
+        //@ts-ignore
+        res.send({ error: err.message })
+    }
 })
 
 app.listen(PORT, () => {
